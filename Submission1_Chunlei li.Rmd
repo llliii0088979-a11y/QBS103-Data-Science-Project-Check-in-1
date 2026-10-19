@@ -1,0 +1,345 @@
+---
+title: 'Submission 1: Vitamin D and CYP24A1 expression'
+author: "Chunlei Li"
+output:
+  word_document: default
+  html_document:
+    self_contained: true
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: true
+fontsize: 10pt
+geometry: margin=0.85in
+mainfont: DejaVu Sans
+monofont: DejaVu Sans Mono
+header-includes:
+- \usepackage{float}
+- \usepackage{booktabs}
+- \usepackage{longtable}
+- \usepackage{array}
+- \usepackage{graphicx}
+- \usepackage{fvextra}
+- \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.width = 7, fig.height = 4.5, out.width = "100%",
+                      fig.pos = "H", comment = "#>")
+```
+
+# Research focus
+
+This exploratory project describes early-pregnancy CYP24A1 expression in relation
+to baseline 25-hydroxyvitamin D, subsequent preeclampsia outcome and a derived
+vitamin D group. CYP24A1 is related to vitamin D metabolism. The threshold of
+30 ng/mL follows the source study; it is not a universal diagnostic threshold.
+The continuous variable is `mat_vitD`. The categorical variables are
+`preg_preeclampsia` and `vitD_group`, the latter derived from `mat_vitD`.
+
+# step1 : Global settings and packages
+
+The expression columns and covariate rows have different input orders.
+All matching below uses sample identifiers. All 157 samples are retained;
+no covariate or supplied expression value is missing.
+
+```{r prepare-data}
+# Load packages for data manipulation and visualization.
+library(ggplot2)
+library(dplyr)
+
+```
+
+# Step2 : Import raw data
+
+```{r}
+
+# Import gene expression data and use the first column as row names.
+
+cov_path <- "E:/桌面/raw/GSE85307_covar-1.csv"
+expr_path <- "E:/桌面/raw/GSE85307_geneExpression.csv"
+gene_path <- "E:/桌面/raw/GSE85307_geneNames.csv"
+
+# Read input files from the project's data/raw folder.
+
+#cov_path <- "data/raw/GSE85307_covar-1.csv"
+#expr_path <- "data/raw/GSE85307_geneExpression.csv"
+#gene_path <- "data/raw/GSE85307_geneNames.csv"
+
+
+
+# Check file existence: TRUE means found; FALSE means not found.
+file.exists(cov_path)
+file.exists(expr_path)
+file.exists(gene_path)
+
+# Import participant characteristics.
+covar_raw <- read.csv(
+  cov_path,
+  stringsAsFactors = FALSE,
+  check.names = FALSE
+)
+
+# Import gene expression data, using the first column as row names.
+expr_raw <- read.csv(
+  expr_path,
+  row.names = 1,
+  check.names = FALSE
+)
+# Import the probe-to-gene mapping table.
+link_raw <- read.csv(
+  gene_path,
+  stringsAsFactors = FALSE,
+  check.names = FALSE
+)
+
+# Check dimensions: number of rows followed by number of columns.
+dim(covar_raw)
+dim(expr_raw)
+dim(link_raw)
+```
+
+# step3 : Clean covariates
+
+```{r}
+
+# Define a function to remove the first label and trim whitespace.
+strip_label <- function(x) trimws(sub("^[^:]*:\\s*", "", x, perl = TRUE))
+
+# Create a working copy and retain the raw data object.
+clean <- covar_raw
+
+# Remove labels from variables other than participant identifiers.
+for (v in setdiff(names(clean), c("subjectID", "geoID"))) {
+  clean[[v]] <- strip_label(clean[[v]])
+}
+
+
+# Identify variables that should be numeric.
+num_vars <- c("mat_age_yrs", "delivery_gestAge_wks",
+              "sampleCollection_gestAge_wks", "mat_BMI", "mat_vitD")
+
+
+# Convert each variable and check for newly introduced missing values.
+for (v in num_vars) {
+  # Retain the values before conversion.
+  before <- clean[[v]]
+  # Convert text to numeric values.
+  clean[[v]] <- suppressWarnings(as.numeric(before))
+   # Stop if conversion turns a previously nonmissing value into NA.
+  if (any(is.na(clean[[v]]) & !is.na(before))) stop("Numeric conversion failed: ", v)
+}
+
+
+```
+
+# Step4 ：Validate identifiers and match samples
+
+```{r}
+
+# Check identifiers, probe IDs, and gene names for duplicates.
+stopifnot(!anyDuplicated(clean$geoID), !anyDuplicated(clean$subjectID),
+          !anyDuplicated(colnames(expr_raw)), !anyDuplicated(rownames(expr_raw)),
+          !anyDuplicated(link_raw$PROBEID), !anyDuplicated(link_raw$GENE),
+          # Check whether both files contain the same set of samples.
+          setequal(clean$geoID, colnames(expr_raw)),
+          # Check that categorical variables contain only expected values.
+          all(clean$preg_preeclampsia %in% c("Normal", "Preeclampsia")),
+          all(clean$mat_asthma %in% c("0", "1")))
+# Convert expression data to a matrix.
+expr <- as.matrix(expr_raw)
+# Check that all expression values are numeric and finite.
+stopifnot(is.numeric(expr), all(is.finite(expr)))
+
+# Reorder expression columns to match the covariate sample order.
+expr <- expr[, match(clean$geoID, colnames(expr)), drop = FALSE]
+# Confirm exact agreement of sample identifiers and order.
+stopifnot(identical(colnames(expr), clean$geoID))
+# Reorder the mapping table to match expression probe order.
+map <- link_raw[match(rownames(expr), as.character(link_raw$PROBEID)), ]
+
+# Check that each probe has a valid matching gene name.
+stopifnot(!anyNA(map$GENE), identical(as.character(map$PROBEID), rownames(expr)))
+
+# Replace probe row names with gene names.
+rownames(expr) <- map$GENE
+
+```
+
+# Step5 : Create groups and combine data
+
+```{r}
+
+# Define categorical variables and their display order.
+clean <- clean %>% mutate(
+  # Pregnancy outcome: display Normal first.
+  preg_preeclampsia = factor(preg_preeclampsia, levels = c("Normal", "Preeclampsia")),
+  # Group vitamin D using the source study's 30 ng/mL threshold.
+  vitD_group = factor(ifelse(mat_vitD < 30, "<30 ng/mL", ">=30 ng/mL"),
+                      levels = c("<30 ng/mL", ">=30 ng/mL")),
+  # Convert asthma codes to readable labels.
+  mat_asthma = factor(mat_asthma, levels = c("0", "1"), labels = c("No", "Yes")),
+  # Treat microarray batch as a categorical variable.
+  batch_Microarray = factor(batch_Microarray))
+# Transpose expression data to one sample per row and one gene per column.
+all_genes <- as.data.frame(t(expr), check.names = FALSE)
+# Combine covariates and expression after verifying sample order.
+analysis_data <- bind_cols(clean, all_genes)
+# Check the target gene and expected sample size.
+stopifnot(
+  "CYP24A1" %in% rownames(expr),
+  nrow(analysis_data) == 157L
+)
+
+```
+
+# Step6 ： Print concise data checks
+
+```{r}
+
+# Count missing values in each covariate.
+missing_table <- data.frame(variable = names(clean), missing = colSums(is.na(clean)))
+
+
+# Report sample size, expression rows, and outcome group counts.
+data.frame(
+  participants = nrow(clean),
+  probes = nrow(expr),
+  normal = sum(clean$preg_preeclampsia == "Normal"),
+  preeclampsia = sum(clean$preg_preeclampsia == "Preeclampsia"),
+  missing_covariate_values = sum(missing_table$missing)
+)
+
+# Count participants in each outcome and vitamin D subgroup.
+group_counts <- analysis_data %>%
+  count(
+    preg_preeclampsia,
+    vitD_group,
+    .drop = FALSE
+  )
+
+# Print subgroup counts without printing the full dataset.
+group_counts
+
+
+```
+
+
+```{r}
+# Verify that no covariate values are missing.
+stopifnot(
+  sum(missing_table$missing) == 0
+)
+
+```
+
+The missing-value check passed, confirming that none of the covariate values in the cleaned dataset were missing. Therefore, no participants needed to be excluded because of missing covariate data.
+
+
+# Figure 1: Expression distribution
+
+```{r histogram, fig.cap="Distribution of CYP24A1 expression among 157 participants, using 24 bins. The supplied expression scale is retained."}
+# Plot a histogram of CYP24A1 expression.
+p_hist <- ggplot(analysis_data, aes(CYP24A1)) +
+  
+  # Use 24 bins; bar heights represent participant counts.
+  
+  geom_histogram(bins = 24, fill = "#337C8E", colour = "white") +
+  
+  # Add a title, dynamic sample size, and axis labels.
+  
+  labs(title = "CYP24A1 expression distribution", subtitle = "n = 157",
+       x = "CYP24A1 expression (provided scale)", y = "Number of participants") +
+  theme_classic(base_size = 11)
+
+# Display the plot.
+p_hist
+```
+## Interpretation figure1
+
+Among the 157 participants, CYP24A1 expression is approximately unimodal and centered around 4.8 on the supplied expression scale. The distribution shows slight right skewness, with a few relatively high values extending to approximately 5.2. Most observations fall between approximately 4.6 and 5.0. The histogram alone is insufficient to establish normality.
+
+
+# Figure 2: Continuous vitamin D and expression
+
+```{r scatterplot, fig.cap="Baseline vitamin D and CYP24A1 expression. The shaded band is the model-based 95% confidence interval for the unadjusted fitted mean, not a prediction interval."}
+# Map continuous vitamin D to x and CYP24A1 expression to y.
+p_scatter <- ggplot(analysis_data, aes(mat_vitD, CYP24A1)) +
+  # Each point represents one participant; transparency reduces overlap.
+  geom_point(colour = "#337C8E", alpha = .65, size = 1.7) +
+  # Add an unadjusted linear fit and a 95% confidence band for the mean.
+  geom_smooth(method = "lm", formula = y ~ x, se = TRUE,
+              colour = "#B65E27", fill = "#E4B48B", linewidth = .8) +
+  # Set the title and axis labels
+  labs(title = "CYP24A1 and baseline vitamin D", subtitle = "n = 157",
+       x = "Baseline 25(OH)D (ng/mL)", y = "CYP24A1 expression (provided scale)") +
+  # Use the same theme as Figure 1.
+  theme_classic(base_size = 11)
+
+# Display the plot.
+p_scatter
+```
+## Interpretation - figure 2
+
+The scatterplot shows little apparent linear association between baseline 25(OH)D and CYP24A1 expression. The unadjusted fitted line has a slight downward slope, but expression values vary considerably at similar vitamin D levels. The 95% confidence band widens at higher vitamin D levels, where observations are sparse, indicating greater uncertainty in the fitted mean. This plot does not establish a causal relationship or rule out nonlinear associations.
+
+# Figure 3: Both categorical covariates
+
+```{r boxplot, fig.width=8.2, fig.cap="CYP24A1 expression by subsequent pregnancy outcome and vitamin D group. Boxes show the median and interquartile range; Whiskers extend to the most extreme observed values within 1.5 times the IQR below the first quartile and above the third quartile. Jitter changes only horizontal display positions."}
+# Count participants in each subgroup for plot annotations.
+counts <- analysis_data %>% count(preg_preeclampsia, vitD_group)
+
+# Position count labels above the highest expression value.
+counts$label_y <- max(analysis_data$CYP24A1) + .05
+
+# Map outcome to x, expression to y, and vitamin D group to fill.
+
+p_box <- ggplot(analysis_data, aes(preg_preeclampsia, CYP24A1, fill = vitD_group)) +
+  # Draw boxplots; individual points are shown in the next layer.
+  
+  geom_boxplot(width = .55, outlier.shape = NA, alpha = .65) +
+  # Show each participant with horizontal jitter only.
+  geom_point(position = position_jitter(width = .12, height = 0, seed = 103),
+             shape = 21, size = 1.3, alpha = .6) +
+  
+  # Display the sample size above each subgroup.
+  
+  geom_text(data = counts, aes(x = preg_preeclampsia, y = label_y,
+                             label = paste0("n = ", n)),
+            inherit.aes = FALSE, size = 3.1) +
+  # Create one panel for each vitamin D group.
+  facet_wrap(~vitD_group) +
+  # Specify fill colors for the two groups.
+  scale_fill_manual(values = c("#337C8E", "#D5A13B")) +
+  # Add space for points and count labels.
+  scale_y_continuous(expand = expansion(mult = c(.07, .17))) +
+  
+  # Set the title and axis labels.
+  labs(title = "CYP24A1 by outcome and vitamin D group", subtitle = "n = 157",
+       x = "Pregnancy outcome", y = "CYP24A1 expression (provided scale)") +
+  # Keep a consistent theme and omit the redundant legend.
+  theme_classic(base_size = 11) +
+  theme(legend.position = "none")
+# Display the plot.
+p_box
+```
+
+## Interpretation figure3
+
+In the <30 ng/mL vitamin D group, participants with normal pregnancy outcomes (n = 78) and those who developed preeclampsia (n = 41) have similar median CYP24A1 expression and substantially overlapping distributions. In the ≥30 ng/mL group, participants who developed preeclampsia (n = 6) have a slightly lower observed median and a narrower interquartile range than those with normal outcomes (n = 32). However, this comparison should be interpreted cautiously because the preeclampsia subgroup contains only six participants. These descriptive differences do not establish statistical significance or causality.
+
+
+# Conclusion
+
+Overall, CYP24A1 expression shows little apparent linear association with baseline vitamin D. Expression distributions overlap across pregnancy outcome groups, although the small preeclampsia subgroup in the higher vitamin D category limits interpretation. These findings are exploratory.
+
+# Submission notes and references
+
+I used ChatGPT/Codex to help organize the R Markdown workflow and explain the code. I also watched YouTube videos on GitHub operations and project data processing to improve my understanding.
+
+- Mirzakhani H, et al. Early pregnancy vitamin D status and risk of
+  preeclampsia. J Clin Invest. 2016;126(12):4702–4715.
+  doi:10.1172/JCI89031.
+- GEO GSE85307: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE85307
+- NCBI Gene CYP24A1: https://www.ncbi.nlm.nih.gov/gene/1591
+
