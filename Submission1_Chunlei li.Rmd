@@ -68,10 +68,19 @@ gene_path <- "E:/桌面/raw/GSE85307_geneNames.csv"
 
 
 
-# Check file existence: TRUE means found; FALSE means not found.
-file.exists(cov_path)
-file.exists(expr_path)
-file.exists(gene_path)
+# Identify missing input files before importing data.
+
+input_paths <- c(cov_path, expr_path, gene_path)
+
+missing_files <- input_paths[!file.exists(input_paths)]
+
+# Stop with an informative message if any file is missing.
+if (length(missing_files) > 0) {
+  stop(
+    "Missing input files: ",
+    paste(missing_files, collapse = ", ")
+  )
+}
 
 # Import participant characteristics.
 covar_raw <- read.csv(
@@ -342,4 +351,16 @@ I used ChatGPT/Codex to help organize the R Markdown workflow and explain the co
   doi:10.1172/JCI89031.
 - GEO GSE85307: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE85307
 - NCBI Gene CYP24A1: https://www.ncbi.nlm.nih.gov/gene/1591
+
+
+# Software environment
+
+```{r session-info}
+
+# Record software and package versions for reproducibility.
+sessionInfo()
+```
+
+```
+
 
