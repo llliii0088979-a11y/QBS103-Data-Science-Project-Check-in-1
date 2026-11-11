@@ -1,0 +1,291 @@
+\documentclass[11pt]{article}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{graphicx}
+\graphicspath{ {./final_figures/} }
+\usepackage{float}
+
+\title{Baseline Vitamin D, Preeclampsia,\\
+and Early-Pregnancy Gene Expression}
+\author{Chunlei Li}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+Low maternal vitamin D in early pregnancy has been linked to a higher
+risk of preeclampsia \cite{Mirzakhani2016}. CYP24A1 encodes the enzyme
+that inactivates the active form of vitamin D, so I examined its
+expression together with baseline vitamin D and pregnancy outcome. I also
+examined UTS2 and RUNDC3A, the two most variable of the supplied genes,
+to compare expression patterns. This report is descriptive and does not
+test hypotheses.
+
+\section{Methods}
+
+\subsection{Data source and sample size}
+The data come from the study by Mirzakhani et al.\ \cite{Mirzakhani2016}
+and are available from the Gene Expression Omnibus under accession
+GSE85307 \cite{GEO_GSE85307}. The course provided three files: covariate
+data for 157 participants, expression values for 500 genes measured with
+the Affymetrix Human Gene 1.0 ST Array, and a linker file mapping probe
+IDs to gene names. Blood samples were collected between 10 and 19 weeks of
+gestation. The initial sample size was 157 participants (110 normal
+pregnancies and 47 with preeclampsia).
+
+\subsection{Data processing and final sample size}
+All data wrangling was performed in R. I removed the text label from each
+covariate value, converted the continuous covariates to numbers, matched
+expression columns to participants by their GEO sample ID, and replaced
+probe IDs with gene names using the linker file. Every sample ID and probe
+ID matched, and no covariate or expression value was missing. I therefore
+removed no participants, and the final sample size was 157. I derived a
+categorical vitamin D group from baseline 25-hydroxyvitamin D using a
+cutoff of 30~ng/mL ($<$30 vs.\ $\geq$30~ng/mL).
+
+\subsection{Analyses}
+I inspected histograms of each continuous covariate before choosing
+summary statistics. Maternal age was approximately symmetric and is
+reported as mean (SD); vitamin D and BMI were right-skewed and are
+reported as median [Q1, Q3]. Categorical variables are reported as
+n (\%). The summary table is stratified by pregnancy outcome.
+
+For CYP24A1, UTS2, and RUNDC3A, I used one plotting function to produce a
+histogram of expression, a scatterplot of expression against baseline
+vitamin D with an unadjusted linear fit and 95\% confidence band, and a
+boxplot of expression by pregnancy outcome and vitamin D group. For the
+heatmap, I selected the ten genes with the highest standard deviation
+across participants and applied hierarchical clustering with Euclidean
+distance and complete linkage to rows and columns, without row
+standardization. As an additional plot, I used a dumbbell plot to compare the median
+expression of the same ten genes between the two outcome groups, with
+genes ordered by the difference in medians (preeclampsia minus normal). All
+analyses were descriptive; I did not perform hypothesis tests or estimate
+adjusted effects.
+
+\subsection{Software}
+Analyses were conducted in R version 4.6.1 \cite{RCoreTeam}.
+Figures were made with ggplot2 version 4.0.3
+\cite{Wickham2016} and pheatmap version 1.0.13
+\cite{Kolde_pheatmap}. Tables were made with knitr version
+1.52 \cite{Xie2015} and kableExtra version
+1.4.1 \cite{Zhu_kableExtra}, and the analysis was
+compiled with R Markdown \cite{Xie2018}.
+
+\subsection{Code availability}
+All code is available in my public GitHub repository:\\
+https://github.com/llliii0088979-a11y/QBS103\_DataScience\_Project.
+
+\subsection{Use of AI and other resources}
+This was my first time using R, so I made frequent errors while writing
+the code. I used an AI assistant (Claude) to help me debug errors,
+suggest code for parts of the analysis (such as the dumbbell plot), and
+draft and edit the wording of this report. I also watched YouTube
+tutorials to help me understand R and ggplot2 concepts. I chose the
+research question, genes, and covariates, reviewed and ran all of the
+code myself, and checked that the results and text matched the data.
+
+\section{Results}
+
+\subsection{Participant characteristics}
+I found lower median baseline vitamin D (17.7 vs.\ 21.8~ng/mL) and
+higher median BMI (31.24 vs.\ 26.54~kg/m$^2$) in participants with
+preeclampsia than in participants with normal pregnancies, while mean
+maternal age was similar (25.78 vs.\ 26.63 years). A larger share of the
+preeclampsia group had vitamin D below 30~ng/mL (87.2\% vs.\ 70.9\%;
+Table~\ref{tab:one}).
+
+\begin{table}[H]
+\centering
+\caption{Participant characteristics by pregnancy outcome.}
+\label{tab:one}
+\footnotesize
+\begin{tabular}{|l|r|r|r|}
+\hline
+ & Overall & Normal & Preeclampsia \\
+Variable & ($n = 157$) & ($n = 110$) & ($n = 47$) \\
+\hline
+Vitamin D (ng/mL), median [Q1, Q3] & 20.4 [13.4, 29.5] & 21.8 [13.85, 32.08] & 17.7 [12.55, 27.4] \\
+Maternal age (years), mean (SD) & 26.38 (5.04) & 26.63 (5.08) & 25.78 (4.95) \\
+Maternal BMI (kg/m$^2$), median [Q1, Q3] & 27.33 [22.9, 33.27] & 26.54 [22.35, 30.97] & 31.24 [24.62, 36.41] \\
+\hline
+Pregnancy outcome, n (\%) & & & \\
+Normal & 110 (70.1) & 110 (100) & 0 (0) \\
+Preeclampsia & 47 (29.9) & 0 (0) & 47 (100) \\
+\hline
+Vitamin D group, n (\%) & & & \\
+$<$30 ng/mL & 119 (75.8) & 78 (70.9) & 41 (87.2) \\
+$\geq$30 ng/mL & 38 (24.2) & 32 (29.1) & 6 (12.8) \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{CYP24A1}
+I observed a single, narrow peak in CYP24A1 expression near 4.8, with a
+small upper tail (Figure~\ref{fig:cyp-hist}). The fitted line between
+baseline vitamin D and CYP24A1 expression was nearly flat, so I did not
+see a clear linear pattern in this sample (Figure~\ref{fig:cyp-scatter}).
+Expression distributions overlapped across all four outcome and vitamin D
+subgroups. I interpreted the lower median in the preeclampsia,
+$\geq$30~ng/mL subgroup cautiously because it included only six
+participants (Figure~\ref{fig:cyp-box}).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.65\textwidth]{cyp-hist-1.pdf}
+  \caption{CYP24A1 expression in all 157 participants. The histogram uses
+  24 bins and the supplied expression scale.}
+  \label{fig:cyp-hist}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.65\textwidth]{cyp-scatter-1.pdf}
+  \caption{CYP24A1 expression and baseline vitamin D. The line is an
+  unadjusted linear fit; shading shows the 95\% confidence interval for
+  the fitted mean.}
+  \label{fig:cyp-scatter}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.65\textwidth]{cyp-box-1.pdf}
+  \caption{CYP24A1 expression by pregnancy outcome and vitamin D group.
+  Boxes show medians and quartiles; whiskers extend to observations within
+  1.5 times the IQR, and points beyond them are outliers. Group sizes:
+  $<$30~ng/mL, Normal 78 and Preeclampsia 41; $\geq$30~ng/mL, Normal 32
+  and Preeclampsia 6.}
+  \label{fig:cyp-box}
+\end{figure}
+
+\subsection{UTS2}
+UTS2 expression was clearly bimodal: most participants had values near
+5, and a smaller group had values between about 6 and 8.5
+(Figure~\ref{fig:uts2-hist}). Both groups appeared across the range of
+baseline vitamin D, so the single linear fit passed between them and did
+not describe either group well (Figure~\ref{fig:uts2-scatter}). The six
+preeclampsia participants with vitamin D $\geq$30~ng/mL had a higher
+median UTS2 expression, but I did not treat this small subgroup as
+evidence of a difference (Figure~\ref{fig:uts2-box}).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.65\textwidth]{uts2-hist-1.pdf}
+  \caption{UTS2 expression in all 157 participants. The histogram uses 24
+  bins and the supplied expression scale.}
+  \label{fig:uts2-hist}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.65\textwidth]{uts2-scatter-1.pdf}
+  \caption{UTS2 expression and baseline vitamin D. The line is an
+  unadjusted linear fit; shading shows the 95\% confidence interval for
+  the fitted mean.}
+  \label{fig:uts2-scatter}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.65\textwidth]{uts2-box-1.pdf}
+  \caption{UTS2 expression by pregnancy outcome and vitamin D group.
+  Boxes show medians and quartiles; whiskers extend to observations within
+  1.5 times the IQR, and points beyond them are outliers. Group sizes:
+  $<$30~ng/mL, Normal 78 and Preeclampsia 41; $\geq$30~ng/mL, Normal 32
+  and Preeclampsia 6.}
+  \label{fig:uts2-box}
+\end{figure}
+
+\subsection{RUNDC3A}
+I observed a broader, roughly symmetric distribution of RUNDC3A
+expression centered near 9 (Figure~\ref{fig:rundc3a-hist}). The fitted
+line sloped slightly downward with baseline vitamin D, with substantial
+scatter around it (Figure~\ref{fig:rundc3a-scatter}). Median RUNDC3A
+expression was lower in the preeclampsia group within both vitamin D
+groups, although the distributions overlapped
+(Figure~\ref{fig:rundc3a-box}).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.65\textwidth]{rundc3a-hist-1.pdf}
+  \caption{RUNDC3A expression in all 157 participants. The histogram uses
+  24 bins and the supplied expression scale.}
+  \label{fig:rundc3a-hist}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.65\textwidth]{rundc3a-scatter-1.pdf}
+  \caption{RUNDC3A expression and baseline vitamin D. The line is an
+  unadjusted linear fit; shading shows the 95\% confidence interval for
+  the fitted mean.}
+  \label{fig:rundc3a-scatter}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.65\textwidth]{rundc3a-box-1.pdf}
+  \caption{RUNDC3A expression by pregnancy outcome and vitamin D group.
+  Boxes show medians and quartiles; whiskers extend to observations within
+  1.5 times the IQR, and points beyond them are outliers. Group sizes:
+  $<$30~ng/mL, Normal 78 and Preeclampsia 41; $\geq$30~ng/mL, Normal 32
+  and Preeclampsia 6.}
+  \label{fig:rundc3a-box}
+\end{figure}
+
+\subsection{Ten-gene heatmap}
+Because I kept the supplied scale, the colors mainly reflected
+differences in overall expression level between genes, and the genes
+clustered into a lower-expression group (UTS2, CEACAM6, CLIC2, ZNF594) and
+a higher-expression group. One cluster of participants had higher UTS2
+expression, matching the second UTS2 group in Figure~\ref{fig:uts2-hist}.
+The tracking bars showed no visible separation by pregnancy outcome or
+vitamin D group (Figure~\ref{fig:heatmap}). I treated the clustering as
+exploratory.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{heatmap-1.pdf}
+  \caption{The ten genes with the highest standard deviation across 157
+  participants. Colors show expression on the supplied scale. Rows and
+  columns use Euclidean distance and complete-linkage hierarchical
+  clustering. Tracking bars show pregnancy outcome and baseline vitamin D
+  group. Sample labels are hidden for readability.}
+  \label{fig:heatmap}
+\end{figure}
+
+\subsection{Median expression of the ten heatmap genes by outcome}
+Among the ten most variable genes, I found the largest difference
+between outcome groups for RUNDC3A, with lower median expression in preeclampsia
+(8.74 vs.\ 9.15; difference $-0.41$), followed by TGM2 ($-0.28$), ZNF594
+($-0.21$), and CLIC2 ($-0.19$). The remaining six genes differed by 0.06
+or less (Figure~\ref{fig:dumbbell}). I report these as unadjusted
+descriptive differences, not test results.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.8\textwidth]{dumbbell-1.pdf}
+  \caption{Median expression of the ten highest-variance genes in normal
+  pregnancies ($n = 110$) and preeclampsia ($n = 47$). Each line joins the
+  two group medians for one gene; numbers on the right give the difference
+  (preeclampsia minus normal) on the supplied expression scale. Genes are
+  ordered by this difference.}
+  \label{fig:dumbbell}
+\end{figure}
+
+\section{Discussion}
+In this sample, participants with preeclampsia had lower baseline vitamin
+D and were more often below 30~ng/mL, consistent with the direction reported by
+Mirzakhani et al.\ \cite{Mirzakhani2016}. CYP24A1 expression showed no
+clear pattern with vitamin D or outcome in my analysis. Among the most variable genes,
+RUNDC3A had the largest outcome difference, consistent with its lower
+median in the preeclampsia group within both vitamin D groups. I consider these findings descriptive:
+the analyses are unadjusted, include no hypothesis tests, and some
+subgroups are small, especially the six preeclampsia participants with
+vitamin D $\geq$30~ng/mL.
+
+\bibliographystyle{unsrt}
+\bibliography{references}
+
+\end{document}

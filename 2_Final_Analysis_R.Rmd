@@ -1,0 +1,494 @@
+---
+title: "Final project R analysis: vitamin D, preeclampsia, and gene expression"
+author: "Chunlei Li"
+date: "2026-11-09"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.path = "final_figures/")
+```
+
+```{r packages}
+
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+library(pheatmap)
+```
+
+# Purpose
+
+I continued my Submission 2 analysis of CYP24A1, UTS2, and RUNDC3A,
+with baseline vitamin D as the continuous covariate and pregnancy outcome
+and vitamin D group (derived using 30 ng/mL) as the categorical covariates.
+I added maternal age and BMI for the summary table. The separate LaTeX
+report presents my findings.
+
+# Import and match the original data
+
+```{r import}
+# Read  files
+covar_raw <- read.csv("GSE85307_covar-1.csv")
+expr_raw <- read.csv("GSE85307_geneExpression.csv", row.names = 1)
+link_raw <- read.csv("GSE85307_geneNames.csv")
+```
+
+```{r clean-text}
+# Keep the raw data and clean a working copy.
+clean <- covar_raw
+for (v in names(clean)[3:10]) {
+  # Remove everything up to the last ": " so only the value remains.
+  clean[, v] <- sub(".*: ", "", clean[, v])
+}
+```
+
+```{r clean-numeric}
+# Convert the five continuous covariates from text to numbers.
+num_vars <- c("mat_age_yrs", "delivery_gestAge_wks",
+              "sampleCollection_gestAge_wks", "mat_BMI", "mat_vitD")
+for (v in num_vars) {
+  clean[, v] <- as.numeric(clean[, v])
+}
+```
+
+```{r check-ids}
+# Check unique sample IDs and membership before arranging columns.
+length(table(clean$geoID)) == nrow(clean)
+length(table(colnames(expr_raw))) == ncol(expr_raw)
+all(clean$geoID %in% colnames(expr_raw))
+all(colnames(expr_raw) %in% clean$geoID)
+```
+
+```{r match-samples}
+# Select expression columns by sample ID, not by their original positions.
+expr <- expr_raw[, clean$geoID]
+all(colnames(expr) == clean$geoID)
+```
+
+```{r match-genes}
+# Match probe IDs to gene names using named rows in the linker file.
+rownames(link_raw) <- as.character(link_raw$PROBEID)
+all(rownames(expr) %in% rownames(link_raw))
+gene_names <- link_raw[rownames(expr), "GENE"]
+sum(is.na(gene_names))
+length(table(gene_names)) == nrow(expr)
+rownames(expr) <- gene_names
+```
+
+```{r define-groups}
+# Define the outcome factor and the derived vitamin D group.
+clean$preg_preeclampsia <- factor(clean$preg_preeclampsia,
+                                  levels = c("Normal", "Preeclampsia"))
+clean$vitD_group <- factor(
+  ifelse(clean$mat_vitD < 30, "<30 ng/mL", ">=30 ng/mL"),
+  levels = c("<30 ng/mL", ">=30 ng/mL"))
+```
+
+```{r combine}
+# Transpose to one participant per row, then combine the matched data.
+all_genes <- as.data.frame(t(expr))
+analysis_data <- cbind(clean, all_genes)
+```
+
+```{r inspect}
+# Inspect dimensions, missing values, and the four subgroup counts.
+# No participants were removed, so the final sample size is 157.
+dim(expr)
+nrow(analysis_data)
+sum(is.na(clean))
+sum(is.na(expr))
+table(clean$preg_preeclampsia, clean$vitD_group)
+```
+
+# Plotting function from Submission 2
+
+```{r plot-function}
+# Produce the three plot types for one or more genes.
+# categorical contains the names of exactly two categorical covariates.
+# continuous_label and categorical_labels set readable axis and legend titles.
+
+make_gene_plots <- function(data, genes, continuous, categorical,
+                            continuous_label = continuous,
+                            categorical_labels = categorical) {
+  plots <- list()
+
+  # Repeat the same plotting steps for every requested gene.
+  for (gene in genes) {
+    # Temporary names allow the function to accept column names.
+    plot_data <- data.frame(
+      Expression = data[, gene],
+      Continuous = data[, continuous],
+      Cat1 = data[, categorical[1]],
+      Cat2 = data[, categorical[2]])
+
+    # Plot 1: histogram
+    histogram <- ggplot(plot_data, aes(x = Expression)) +
+      geom_histogram(bins = 24, fill = "#337C8E", colour = "white") +
+      labs(title = paste(gene, "expression distribution"),
+           x = paste(gene, "expression (provided scale)"),
+           y = "Number of participants") +
+      theme_classic(base_size = 11)
+
+    # Plot 2: scatterplot
+    scatterplot <- ggplot(plot_data,
+                          aes(x = Continuous, y = Expression)) +
+      geom_point(colour = "#337C8E", alpha = 0.65, size = 1.7) +
+      geom_smooth(method = "lm", formula = y ~ x,
+                  colour = "#B65E27", fill = "#E4B48B") +
+      labs(title = paste(gene, "expression vs.", continuous_label),
+           x = continuous_label,
+           y = paste(gene, "expression (provided scale)")) +
+      theme_classic(base_size = 11)
+
+    # Plot 3: boxplot
+    boxplot <- ggplot(plot_data,
+                      aes(x = Cat1, y = Expression, fill = Cat2)) +
+      geom_boxplot(width = 0.6, position = position_dodge(0.75)) +
+      scale_fill_manual(values = c("#337C8E", "#D5A13B")) +
+      labs(title = paste(gene, "expression by group"),
+           x = categorical_labels[1], fill = categorical_labels[2],
+           y = paste(gene, "expression (provided scale)")) +
+      theme_classic(base_size = 11) +
+      theme(legend.position = "top")
+
+    # Save plots in a named list so they can be displayed separately.
+    plots[[gene]] <- list(histogram = histogram,
+                          scatterplot = scatterplot,
+                          boxplot = boxplot)
+  }
+  plots
+}
+```
+
+```{r make-plots}
+# The same three genes as Submission 2, with readable labels for the plots.
+plots <- make_gene_plots(
+  data = analysis_data,
+  genes = c("CYP24A1", "UTS2", "RUNDC3A"),
+  continuous = "mat_vitD",
+  categorical = c("preg_preeclampsia", "vitD_group"),
+  continuous_label = "Baseline 25(OH)D (ng/mL)",
+  categorical_labels = c("Pregnancy outcome", "Baseline vitamin D"))
+```
+
+# Check continuous covariate distributions
+
+I inspected the three continuous covariates before choosing summary
+statistics. Age looked roughly symmetric, so I used mean (SD). Vitamin D
+and BMI were right-skewed, so I used median [Q1, Q3].
+
+```{r check-mat_vitD}
+# Distribution of baseline vitamin D.
+hist(clean$mat_vitD, breaks = 20, main = "",
+     xlab = "Baseline vitamin D (ng/mL)")
+```
+
+```{r check-mat_age_yrs}
+# Distribution of maternal age.
+hist(clean$mat_age_yrs, breaks = 20, main = "",
+     xlab = "Maternal age (years)")
+```
+
+```{r check-mat_BMI}
+# Distribution of maternal BMI.
+hist(clean$mat_BMI, breaks = 20, main = "",
+     xlab = "Maternal BMI (kg/m2)")
+```
+
+# Summary statistics table
+
+```{r table-functions}
+# Step 1: Summary functions from Lecture 09.
+meanSD <- function(x) {
+  paste0(round(mean(x), 2), " (", round(sd(x), 2), ")")
+}
+
+medianIQR <- function(x) {
+  paste0(round(median(x), 2), " [",
+         round(quantile(x, 1/4), 2), ", ",
+         round(quantile(x, 3/4), 2), "]")
+}
+
+# n (%) for every level of a categorical variable.
+catNP <- function(x) {
+  paste0(table(x), " (", round(table(x) / length(x) * 100, 1), ")")
+}
+```
+
+```{r table-stratify}
+# Step 2: Stratify the table by pregnancy outcome.
+normal <- clean[clean$preg_preeclampsia == "Normal", ]
+preeclampsia <- clean[clean$preg_preeclampsia == "Preeclampsia", ]
+```
+
+```{r table-build}
+# Step 3: Three continuous and two categorical covariates.
+table1 <- data.frame(
+  Variable = c("Vitamin D (ng/mL), median [Q1, Q3]",
+               "Maternal age (years), mean (SD)",
+               "Maternal BMI (kg/m2), median [Q1, Q3]",
+               "Pregnancy outcome, n (%)", "Normal", "Preeclampsia",
+               "Vitamin D group, n (%)", "<30 ng/mL", ">=30 ng/mL"),
+  Overall = c(medianIQR(clean$mat_vitD), meanSD(clean$mat_age_yrs),
+              medianIQR(clean$mat_BMI),
+              "", catNP(clean$preg_preeclampsia),
+              "", catNP(clean$vitD_group)),
+  Normal = c(medianIQR(normal$mat_vitD), meanSD(normal$mat_age_yrs),
+             medianIQR(normal$mat_BMI),
+             "", catNP(normal$preg_preeclampsia),
+             "", catNP(normal$vitD_group)),
+  Preeclampsia = c(medianIQR(preeclampsia$mat_vitD),
+                   meanSD(preeclampsia$mat_age_yrs),
+                   medianIQR(preeclampsia$mat_BMI),
+                   "", catNP(preeclampsia$preg_preeclampsia),
+                   "", catNP(preeclampsia$vitD_group)))
+```
+
+```{r table-names}
+# Step 4: Column names show the size of each group.
+table_names <- c("Variable",
+                 paste0("Overall (n = ", nrow(clean), ")"),
+                 paste0("Normal (n = ", nrow(normal), ")"),
+                 paste0("Preeclampsia (n = ", nrow(preeclampsia), ")"))
+```
+
+```{r table-print}
+# Step 5: Print the formatted table, following Lecture 09.
+kable(table1, caption = "Participant characteristics by pregnancy outcome.",
+      col.names = table_names, align = c("l", "r", "r", "r")) %>%
+  add_indent(positions = c(5, 6, 8, 9)) %>%
+  kable_classic()
+```
+
+```{r table-export}
+# Step 6: Save the same table as LaTeX code for the LaTeX report.
+table_latex <- kable(table1, format = "latex",
+                     caption = "Participant characteristics by pregnancy outcome.",
+                     col.names = table_names, align = c("l", "r", "r", "r")) %>%
+  add_indent(positions = c(5, 6, 8, 9)) %>%
+  kable_classic()
+writeLines(table_latex, "Table1.tex")
+```
+
+I found lower median vitamin D and higher median BMI in the preeclampsia
+group. Mean age was similar between outcome groups (Table 1).
+
+\newpage
+
+# CYP24A1 plots
+
+```{r cyp-hist}
+# Figure 1: CYP24A1 expression histogram.
+plots$CYP24A1$histogram
+```
+
+I observed a single main peak near 4.8, with a small upper tail.
+
+```{r cyp-scatter}
+# Figure 2: CYP24A1 vs. baseline vitamin D.
+plots$CYP24A1$scatterplot
+```
+
+I observed a nearly flat fitted line. Vitamin D did not show a clear
+linear pattern with CYP24A1 expression in this sample.
+
+```{r cyp-box}
+# Figure 3: CYP24A1 by outcome and vitamin D group.
+plots$CYP24A1$boxplot
+```
+
+I observed overlapping expression distributions. The subgroup with
+preeclampsia and vitamin D at least 30 ng/mL had only six participants,
+so I interpreted its lower median cautiously.
+
+\newpage
+
+# UTS2 plots
+
+```{r uts2-hist}
+# Figure 4: UTS2 expression histogram.
+plots$UTS2$histogram
+```
+
+I observed two groups of UTS2 values: most participants were near 5,
+and a smaller group was between about 6 and 8.5.
+
+```{r uts2-scatter}
+# Figure 5: UTS2 vs. baseline vitamin D.
+plots$UTS2$scatterplot
+```
+
+Both UTS2 groups appeared across the range of vitamin D, so the single
+fitted line passed between them and did not describe either group well.
+
+```{r uts2-box}
+# Figure 6: UTS2 by outcome and vitamin D group.
+plots$UTS2$boxplot
+```
+
+I observed a higher median UTS2 expression among the six preeclampsia
+participants in the higher vitamin D group. I did not treat this small
+subgroup comparison as evidence of a difference.
+
+\newpage
+
+# RUNDC3A plots
+
+```{r rundc3a-hist}
+# Figure 7: RUNDC3A expression histogram.
+plots$RUNDC3A$histogram
+```
+
+I observed a broader distribution centered near 9 on the supplied scale.
+
+```{r rundc3a-scatter}
+# Figure 8: RUNDC3A vs. baseline vitamin D.
+plots$RUNDC3A$scatterplot
+```
+
+I observed a slight downward fitted line, with substantial scatter around it.
+
+```{r rundc3a-box}
+# Figure 9: RUNDC3A by outcome and vitamin D group.
+plots$RUNDC3A$boxplot
+```
+
+I observed lower median RUNDC3A expression in the preeclampsia group
+within both vitamin D groups. The distributions still overlapped, and I
+did not perform a hypothesis test.
+
+\newpage
+
+# Ten-gene clustered heatmap (Figure 10)
+
+I selected the ten genes with the highest standard deviation across the
+500 supplied genes, following Lecture 08. I kept the supplied expression
+scale and did not standardize rows.
+
+```{r heatmap, fig.width=8, fig.height=5}
+# Figure 10: clustered heatmap of the ten most variable genes.
+
+# 1. Select the ten genes with the highest standard deviation.
+# Ranking by SD gives the same genes as ranking by variance.
+gene_sd <- apply(expr, MARGIN = 1, FUN = sd)
+heatmap_data <- expr[order(gene_sd, decreasing = TRUE)[1:10], ]
+
+# 2. Tracking bar data, with one row per sample column of the heatmap.
+# check.names = FALSE keeps the spaces in the tracking bar labels.
+annotation_data <- data.frame(
+  row.names = clean$geoID,
+  "Pregnancy outcome" = clean$preg_preeclampsia,
+  "Vitamin D" = clean$vitD_group,
+  check.names = FALSE)
+
+# Check that the sample IDs match the heatmap columns.
+all(rownames(annotation_data) == colnames(heatmap_data))
+
+# 3. Different colors for each tracking bar
+# The list names must match the tracking bar labels above.
+annotation_colors <- list(
+  "Pregnancy outcome" = c("Normal" = "#559A91", "Preeclampsia" = "#C87965"),
+  "Vitamin D" = c("<30 ng/mL" = "#D9B866", ">=30 ng/mL" = "#8979A8"))
+
+# 4. Color gradient for gene expression, from low (blue) to high (red).
+heatmap_colors <- colorRampPalette(
+  c("#3B7185", "#78A6A5", "#F5F1E8", "#DDA184", "#C66B5B"))(100)
+
+# 5. Clustered heatmap
+pheatmap(heatmap_data,
+         color = heatmap_colors,
+         clustering_distance_cols = "euclidean",
+         clustering_distance_rows = "euclidean",
+         annotation_col = annotation_data,
+         annotation_colors = annotation_colors,
+         show_colnames = FALSE,
+         border_color = NA)
+```
+
+The genes separated mainly by overall expression level, and one cluster
+of participants had higher UTS2 expression. The tracking bars did not
+separate by outcome or vitamin D group. I treated the clustering as
+exploratory and did not use the dendrogram as a test of group differences.
+
+\newpage
+
+# Additional plot: dumbbell plot (Figure 11)
+
+I used a dumbbell plot to compare the median expression of the ten
+heatmap genes between the two outcome groups. Each line joins the two
+group medians for one gene, and genes are ordered by the difference.
+
+```{r dumbbell, fig.width=7, fig.height=4.5}
+# Figure 11: median expression of the ten heatmap genes by outcome.
+
+# Sample IDs for each outcome group.
+normal_ids <- clean$geoID[clean$preg_preeclampsia == "Normal"]
+pe_ids <- clean$geoID[clean$preg_preeclampsia == "Preeclampsia"]
+
+# Median expression of each heatmap gene within each outcome group.
+dumbbell_data <- data.frame(
+  Gene = rownames(heatmap_data),
+  Normal = apply(heatmap_data[, normal_ids], MARGIN = 1, FUN = median),
+  Preeclampsia = apply(heatmap_data[, pe_ids], MARGIN = 1, FUN = median))
+
+# Difference between groups (Preeclampsia minus Normal).
+dumbbell_data$Difference <- dumbbell_data$Preeclampsia - dumbbell_data$Normal
+
+# Order genes from the largest decrease to the largest increase.
+dumbbell_data$Gene <- factor(dumbbell_data$Gene,
+  levels = dumbbell_data$Gene[order(dumbbell_data$Difference)])
+
+# One row per gene and outcome, for the colored points.
+point_data <- data.frame(
+  Gene = rep(dumbbell_data$Gene, 2),
+  Outcome = rep(c("Normal", "Preeclampsia"), each = nrow(dumbbell_data)),
+  Median = c(dumbbell_data$Normal, dumbbell_data$Preeclampsia))
+
+# Difference labels, with a plus sign for increases.
+diff_label <- round(dumbbell_data$Difference, 2)
+diff_label <- paste0(ifelse(diff_label > 0, "+", ""), diff_label)
+
+# Segments join the two group medians; points show each group.
+# Outcome colors match the heatmap tracking bar.
+ggplot() +
+  geom_segment(data = dumbbell_data,
+               aes(x = Normal, xend = Preeclampsia, y = Gene, yend = Gene),
+               colour = "grey60", linewidth = 1) +
+  geom_point(data = point_data,
+             aes(x = Median, y = Gene, colour = Outcome), size = 3) +
+  annotate("text", x = 10.3, y = as.character(dumbbell_data$Gene),
+           label = diff_label, size = 3.2) +
+  scale_colour_manual(values = c("Normal" = "#559A91",
+                                 "Preeclampsia" = "#C87965")) +
+  xlim(4.5, 10.6) +
+  labs(x = "Median expression (provided scale)", y = NULL,
+       colour = "Pregnancy outcome") +
+  theme_classic(base_size = 11) +
+  theme(legend.position = "top")
+```
+
+RUNDC3A showed the largest difference, with lower median expression in
+preeclampsia (8.74 vs. 9.15). TGM2, ZNF594, and CLIC2 were also about
+0.2 to 0.3 lower. The remaining six genes differed by 0.06 or less.
+
+# Software versions
+
+```{r versions}
+# Versions to cite in the Methods section of the LaTeX report.
+R.version.string
+packageVersion("ggplot2")
+packageVersion("knitr")
+packageVersion("kableExtra")
+packageVersion("pheatmap")
+```
+
+# Note on resources used
+
+This was my first time using R, so I made frequent errors while writing
+the code. I used an AI assistant (Claude) to help me debug errors and
+understand error messages, and I watched YouTube tutorials to help me
+understand R and ggplot2 concepts. I reviewed and ran all of the code
+myself, and I checked the results against the data.
