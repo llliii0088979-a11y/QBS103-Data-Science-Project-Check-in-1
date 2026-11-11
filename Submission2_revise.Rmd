@@ -1,0 +1,208 @@
+---
+title: "Submission 2: Vitamin D and Gene Expression"
+author: "Chunlei Li"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(tidyverse)
+```
+
+# Research question
+
+I continued my Submission 1 analysis of CYP24A1 with baseline vitamin D
+(continuous), pregnancy outcome (categorical), and vitamin D group
+(categorical, derived from vitamin D using 30 ng/mL). I added UTS2 and
+RUNDC3A, the two genes with the highest variance among the 500 genes.
+
+# Data preparation
+
+```{r}
+# Read the original files
+covar <- read.csv("GSE85307_covar-1.csv")
+expr <- read.csv("GSE85307_geneExpression.csv", row.names = 1)
+geneNames <- read.csv("GSE85307_geneNames.csv")
+
+
+```
+
+```{r}
+# Remove the text before ": " in the covariates I use
+covar <- covar %>%
+  separate(col = preg_preeclampsia, into = c(NA, "preg_preeclampsia"),
+           sep = ": ") %>%
+  separate(col = mat_vitD, into = c(NA, "mat_vitD"), sep = ": ")
+```
+
+```{r}
+# Convert vitamin D to a number and pregnancy outcome to a factor
+covar$mat_vitD <- as.numeric(covar$mat_vitD)
+covar$preg_preeclampsia <- factor(covar$preg_preeclampsia,
+                                  levels = c("Normal", "Preeclampsia"))
+
+```
+
+```{r}
+
+# Derive the vitamin D group (cutoff 30 ng/mL)
+covar$vitD_group <- factor(ifelse(covar$mat_vitD < 30,
+                                  "<30 ng/mL", ">=30 ng/mL"))
+
+# Order expression columns by geoID and check the match
+expr <- expr[, covar$geoID]
+table(colnames(expr) == covar$geoID)
+
+# Replace probe IDs with gene names and check for missing names
+row.names(geneNames) <- geneNames$PROBEID
+row.names(expr) <- geneNames[row.names(expr), "GENE"]
+sum(is.na(row.names(expr)))
+
+```
+
+```{r}
+
+# One row per participant: covariates plus all genes
+analysisData <- cbind(covar, t(expr))
+dim(analysisData)
+
+# Subgroup sizes
+table(analysisData$preg_preeclampsia, analysisData$vitD_group)
+```
+
+# Select two additional genes
+
+```{r}
+# Variance of each gene, then the two highest
+geneVar <- apply(expr, MARGIN = 1, FUN = var)
+names(geneVar)[order(geneVar, decreasing = TRUE)[1:2]]
+```
+
+# Plotting function
+
+The function takes a data frame and a list of one or more gene names. For
+each gene it makes a histogram, a scatterplot against vitamin D, and a
+boxplot by pregnancy outcome and vitamin D group.
+
+```{r}
+makeGenePlots <- function(data, genes) {
+  # Somewhere to store the plots
+  plots <- list()
+
+  # Loop through all genes
+  for (gene in genes) {
+    # Copy the current gene into one column
+    data$Expression <- data[, gene]
+
+    # Histogram 
+    histPlot <- ggplot(data, aes(x = Expression)) +
+      geom_histogram(bins = 24, fill = "#337C8E", color = "white") +
+      labs(title = gene, x = paste(gene, "expression"),
+           y = "Number of participants") +
+      theme_classic()
+
+    # Scatterplot 
+    scatterPlot <- ggplot(data, aes(x = mat_vitD, y = Expression)) +
+      geom_point(color = "#337C8E") +
+      geom_smooth(method = "lm", color = "#B65E27") +
+      labs(title = gene, x = "Baseline vitamin D (ng/mL)",
+           y = paste(gene, "expression")) +
+      theme_classic()
+
+    # Boxplot 
+    boxPlot <- ggplot(data, aes(x = preg_preeclampsia, y = Expression,
+                                fill = vitD_group)) +
+      geom_boxplot() +
+      scale_fill_manual(values = c("#337C8E", "#D5A13B")) +
+      labs(title = gene, x = "Pregnancy outcome",
+           y = paste(gene, "expression"), fill = "Baseline vitamin D") +
+      theme_classic() +
+      theme(legend.position = "top")
+
+    # Save the three plots for this gene
+    plots[[gene]] <- list(hist = histPlot, scatter = scatterPlot,
+                          box = boxPlot)
+  }
+  plots
+}
+
+
+plots <- makeGenePlots(data = analysisData,
+                       genes = c("CYP24A1", "UTS2", "RUNDC3A"))
+```
+
+\newpage
+
+## CYP24A1
+
+```{r}
+plots$CYP24A1$hist
+```
+
+CYP24A1 expression showed one main peak near 4.8 with a small upper tail.
+
+```{r}
+plots$CYP24A1$scatter
+```
+
+The fitted line was nearly flat, so vitamin D showed no clear linear pattern
+with CYP24A1 expression.
+
+```{r}
+plots$CYP24A1$box
+```
+
+The distributions overlapped. The preeclampsia group with vitamin D of at
+least 30 ng/mL had only six participants.
+
+\newpage
+
+## UTS2
+
+```{r}
+plots$UTS2$hist
+```
+
+UTS2 expression had two groups: most values were near 5, and a smaller
+group was between about 6 and 8.5.
+
+```{r}
+plots$UTS2$scatter
+```
+
+Both UTS2 groups appeared across the range of vitamin D, so the single
+fitted line did not describe either group well.
+
+```{r}
+plots$UTS2$box
+```
+
+The median was higher in the six preeclampsia participants with vitamin D of
+at least 30 ng/mL, but this subgroup is very small.
+
+\newpage
+
+## RUNDC3A
+
+```{r}
+plots$RUNDC3A$hist
+```
+
+RUNDC3A expression had a broader distribution centered near 9.
+
+```{r}
+plots$RUNDC3A$scatter
+```
+
+The fitted line sloped slightly downward, with wide scatter.
+
+```{r}
+plots$RUNDC3A$box
+```
+
+Median RUNDC3A expression was lower in the preeclampsia group within both
+vitamin D groups, although the distributions overlapped.
+
+
+
+
